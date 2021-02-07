@@ -6,6 +6,12 @@ pub struct Program {
     pub functions: Vec<Function>,
 }
 
+impl Program {
+    pub fn parse(s: &str) -> Self {
+        serde_json::from_str(&s).unwrap()
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Function {
     pub name: String,
