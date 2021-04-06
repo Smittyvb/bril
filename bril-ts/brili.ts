@@ -392,6 +392,22 @@ function evalCall(instr: bril.Operation, state: State): Action {
   return NEXT;
 }
 
+let specInstrs: any[] = [];
+let specOver = false;
+
+function endSpec() {
+  if (specOver) return;
+  console.log("SPECEX: stopping speculation")
+  // try again if not enough speculated
+  if (specInstrs.length > 5) {
+    specOver = true;
+    specInstrs.push({action: "commit"});
+    console.error("SPECEX: instrs", [{action: "speculate"}].concat(specInstrs));
+  } else {
+    specInstrs = [];
+  }
+}
+
 /**
  * Interpret an instruction in a given environment, possibly updating the
  * environment. If the instruction branches to a new label, return that label;
@@ -416,6 +432,47 @@ function evalInstr(instr: bril.Instruction, state: State): Action {
   // would require explicit stack management.
   if (state.specparent && ['call', 'ret'].includes(instr.op)) {
     throw error(`${instr.op} not allowed during speculation`);
+  }
+
+  if (!specOver) {
+    switch (instr.op) {
+      // give up on speculating
+      case "ret":
+      case "call":
+        endSpec();
+        break;
+
+      case "speculate":
+      case "guard":
+      case "commit":
+        // don't try to trace something already traced
+        endSpec();
+        break;
+
+      case "br":
+        // {"action": "jump", "label": getLabel(instr, 0)}
+        const cond = getBool(instr, state.env, 0);
+        if (cond) {
+          specInstrs.push({action: "guard", args: [instr.args![0]]});
+        } else {
+          const varId = "specex" + Math.random().toString(36).split(".")[1];
+          // create varId by negating var to guard
+          specInstrs.push({
+            "dest": varId,
+            "op": "not",
+            "type": "bool",
+            "args": [instr.args![0]],
+          });
+          specInstrs.push({action: "guard", args: [varId]});
+        }
+        break;
+
+      default:
+        // pure instruction
+        specInstrs.push(instr);
+        console.error(instr);
+        break;
+    }
   }
 
   switch (instr.op) {
