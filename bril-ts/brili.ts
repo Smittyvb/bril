@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import * as bril from './bril';
 import {readStdin, unreachable} from './util';
+const fs = require("fs");
 
 /**
  * An interpreter error to print to the console.
@@ -397,12 +398,21 @@ let specOver = false;
 
 function endSpec() {
   if (specOver) return;
-  console.log("SPECEX: stopping speculation")
+  console.error("SPECEX: stopping speculation")
   // try again if not enough speculated
   if (specInstrs.length > 5) {
     specOver = true;
-    specInstrs.push({action: "commit"});
-    console.error("SPECEX: instrs", [{action: "speculate"}].concat(specInstrs));
+    specInstrs.push({op: "commit"});
+    const prog = {
+      functions: [
+        {
+          name: "main",
+          instrs: [{op: "speculate"}].concat(specInstrs)
+        }
+      ]
+    };
+    fs.writeFileSync("/home/smit/bril/expr/spec.json", JSON.stringify(prog), "utf-8");
+    console.error("SPECEX: done");
   } else {
     specInstrs = [];
   }
@@ -453,7 +463,7 @@ function evalInstr(instr: bril.Instruction, state: State): Action {
         // {"action": "jump", "label": getLabel(instr, 0)}
         const cond = getBool(instr, state.env, 0);
         if (cond) {
-          specInstrs.push({action: "guard", args: [instr.args![0]]});
+          specInstrs.push({op: "guard", args: [instr.args![0]]});
         } else {
           const varId = "specex" + Math.random().toString(36).split(".")[1];
           // create varId by negating var to guard
@@ -463,8 +473,12 @@ function evalInstr(instr: bril.Instruction, state: State): Action {
             "type": "bool",
             "args": [instr.args![0]],
           });
-          specInstrs.push({action: "guard", args: [varId]});
+          specInstrs.push({op: "guard", args: [varId]});
         }
+        break;
+
+      // ignore unconditional control flow
+      case "jmp":
         break;
 
       default:
@@ -911,6 +925,8 @@ function evalProg(prog: bril.Program) {
     specparent: null,
   }
   evalFunc(main, state);
+
+  endSpec();
 
   if (!heap.isEmpty()) {
     throw error(`Some memory locations have not been freed by end of execution.`);
